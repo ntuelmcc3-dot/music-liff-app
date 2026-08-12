@@ -239,21 +239,48 @@
       new QRCode(document.getElementById("qrcode"), { text: payload, width: 160, height: 160 });
     }
 
-    // 相機掃描 (管理員)
-    function openScanner() {
-      document.getElementById("scannerModal").classList.remove("hidden");
-      html5QrcodeScanner = new Html5Qrcode("reader");
-      html5QrcodeScanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, async (decodedText) => {
-        html5QrcodeScanner.stop();
-        closeScanner();
-        try {
-          const data = JSON.parse(decodedText);
-          const res = await apiRequest({ action: "deduct", phone: data.phone, points: data.points, courseName: data.courseName });
-          if (res.success) Swal.fire("扣點成功！", `已扣除 ${data.points} 點`, "success");
-          else Swal.fire("扣點失敗", res.message, "error");
-        } catch(e) { Swal.fire("無效的條碼格式"); }
-      });
+    // 相機掃描 (使用 LINE 原生掃描器)
+async function openScanner() {
+  // 檢查是否支援 LINE 原生掃描 API
+  if (liff.isApiAvailable('scanCodeV2')) {
+    try {
+      const result = await liff.scanCodeV2();
+      if (result && result.value) {
+        processDeduct(result.value);
+      }
+    } catch (error) {
+      console.log("使用者取消掃描或掃描失敗:", error);
     }
+  } else {
+    Swal.fire("不支援掃描", "請確認是在 LINE APP 內開啟，且已在 LINE Console 開啟 Scan QR 權限。", "warning");
+  }
+}
+
+// 處理掃描後的扣點邏輯
+async function processDeduct(decodedText) {
+  try {
+    const data = JSON.parse(decodedText);
+    if (!data.phone || !data.points) {
+      return Swal.fire("無效的條碼", "這不是正確的學員扣點條碼", "error");
+    }
+
+    const res = await apiRequest({ 
+      action: "deduct", 
+      phone: data.phone, 
+      points: data.points, 
+      courseName: data.courseName 
+    });
+
+    if (res.success) {
+      Swal.fire("扣點成功！", `已扣除 ${data.points} 點`, "success");
+      fetchUserData(currentUser.lineId); // 重新更新頁面資料
+    } else {
+      Swal.fire("扣點失敗", res.message, "error");
+    }
+  } catch (e) {
+    Swal.fire("條碼格式錯誤", "無法解析此條碼資料", "error");
+  }
+}
 
     function closeScanner() {
       if (html5QrcodeScanner) html5QrcodeScanner.stop();
