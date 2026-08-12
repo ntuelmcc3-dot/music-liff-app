@@ -228,20 +228,25 @@
       document.getElementById("qrModal").classList.add("hidden");
     }
 
-    function generateQR() {
-      const val = document.getElementById("qrCourseSelect").value.split('|');
-      const payload = JSON.stringify({
-        phone: currentUser.phone,
-        points: val[0],
-        courseName: val[1]
-      });
-      document.getElementById("qrcode").innerHTML = "";
-      new QRCode(document.getElementById("qrcode"), { text: payload, width: 160, height: 160 });
-    }
+  function generateQR() {
+  const val = document.getElementById("qrCourseSelect").value.split('|');
+  const points = val[0] || "0";
+  const courseName = val[1] || "現場扣點";
+  
+  // 組合極簡內容
+  const payload = `${currentUser.phone}|${points}|${courseName}`;
 
-    // 相機掃描 (使用 LINE 原生掃描器)
+  document.getElementById("qrcode").innerHTML = "";
+  new QRCode(document.getElementById("qrcode"), { 
+    text: payload, 
+    width: 180, 
+    height: 180,
+    correctLevel: QRCode.CorrectLevel.L
+  });
+}
+
+// LINE 相機掃描扣點
 async function openScanner() {
-  // 檢查是否支援 LINE 原生掃描 API
   if (liff.isApiAvailable('scanCodeV2')) {
     try {
       const result = await liff.scanCodeV2();
@@ -249,39 +254,52 @@ async function openScanner() {
         processDeduct(result.value);
       }
     } catch (error) {
-      console.log("使用者取消掃描或掃描失敗:", error);
+      console.log("使用者取消或掃描失敗:", error);
     }
   } else {
-    Swal.fire("不支援掃描", "請確認是在 LINE APP 內開啟，且已在 LINE Console 開啟 Scan QR 權限。", "warning");
+    Swal.fire("不支援掃描", "請確認在 LINE APP 內開啟，並已在 LINE Console 開啟 Scan QR 權限。", "warning");
   }
 }
 
-// 處理掃描後的扣點邏輯
+// 處理掃描結果並扣點
 async function processDeduct(decodedText) {
+  if (!decodedText) return;
+  let phone = "", points = "0", courseName = "";
+
   try {
-    const data = JSON.parse(decodedText);
-    if (!data.phone || !data.points) {
-      return Swal.fire("無效的條碼", "這不是正確的學員扣點條碼", "error");
+    // 自動相容新舊條碼格式
+    if (decodedText.startsWith('{')) {
+      const data = JSON.parse(decodedText);
+      phone = data.phone;
+      points = data.points;
+      courseName = data.courseName;
+    } else if (decodedText.includes('|')) {
+      const parts = decodedText.split('|');
+      phone = parts[0];
+      points = parts[1];
+      courseName = parts[2] || "現場扣點";
+    } else {
+      return Swal.fire("非系統條碼", `掃描內容：\n"${decodedText}"`, "warning");
     }
 
+    // 發送 API 扣點
     const res = await apiRequest({ 
       action: "deduct", 
-      phone: data.phone, 
-      points: data.points, 
-      courseName: data.courseName 
+      phone: phone, 
+      points: points, 
+      courseName: courseName 
     });
 
     if (res.success) {
-      Swal.fire("扣點成功！", `已扣除 ${data.points} 點`, "success");
-      fetchUserData(currentUser.lineId); // 重新更新頁面資料
+      Swal.fire("扣點成功！", `已扣除 ${points} 點`, "success");
+      fetchUserData(currentUser.lineId);
     } else {
       Swal.fire("扣點失敗", res.message, "error");
     }
   } catch (e) {
-    Swal.fire("條碼格式錯誤", "無法解析此條碼資料", "error");
+    Swal.fire("解析失敗", `錯誤內容：${decodedText}`, "error");
   }
 }
-
     function closeScanner() {
       if (html5QrcodeScanner) html5QrcodeScanner.stop();
       document.getElementById("scannerModal").classList.add("hidden");
