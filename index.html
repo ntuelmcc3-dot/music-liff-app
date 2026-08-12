@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>樂器班點數系統 🎵</title>
+  <!-- Tailwind CSS & FontAwesome Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- LIFF SDK & QR Tools -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <style>
+    body { background-color: #FFF9F5; font-family: sans-serif; }
+    .cute-card { background: #FFFFFF; border-radius: 20px; box-shadow: 0 10px 25px rgba(255, 182, 193, 0.2); }
+    .cute-btn { background: #FFB7B2; color: white; border-radius: 12px; transition: all 0.2s; }
+    .cute-btn:hover { background: #FF9AA2; transform: translateY(-2px); }
+    .cute-input { border: 2px solid #FFDAC1; border-radius: 10px; padding: 8px 12px; outline: none; }
+    .cute-input:focus { border-color: #FFB7B2; }
+  </style>
+</head>
+<body class="p-4 max-w-md mx-auto min-h-screen pb-12">
+
+  <!-- Header -->
+  <header class="text-center my-4">
+    <h1 class="text-2xl font-bold text-amber-800"><i class="fa-solid fa-music mr-2 text-pink-400"></i>樂器班集點卡</h1>
+    <p id="userWelcome" class="text-sm text-gray-500 mt-1">載入中...</p>
+  </header>
+
+  <!-- 註冊 Modal -->
+  <div id="registerModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="cute-card p-6 w-full max-w-sm text-center">
+      <h2 class="text-xl font-bold text-amber-800 mb-2">首次登入註冊 🎶</h2>
+      <p class="text-sm text-gray-500 mb-4">請填寫基本資料以建立點數帳號</p>
+      <input id="regName" type="text" placeholder="您的姓名" class="cute-input w-full mb-3">
+      <input id="regPhone" type="tel" placeholder="電話號碼 (例如 0912345678)" class="cute-input w-full mb-4">
+      <button onclick="submitRegister()" class="cute-btn w-full py-2 font-bold">完成註冊</button>
+    </div>
+  </div>
+
+  <!-- 主畫面 Tabs -->
+  <div id="mainApp" class="hidden">
+    
+    <!-- 點數卡片 -->
+    <div class="cute-card p-6 mb-5 text-center border-2 border-pink-100">
+      <span class="text-gray-400 text-xs tracking-wider uppercase font-semibold">目前剩餘點數</span>
+      <div class="text-4xl font-extrabold text-pink-500 my-2" id="pointDisplay">0 <span class="text-base font-normal">點</span></div>
+      <div class="flex justify-center gap-2 mt-4">
+        <button onclick="showQRCode()" class="cute-btn text-xs px-4 py-2"><i class="fa-solid fa-qrcode mr-1"></i>出示扣點碼</button>
+        <button onclick="openTransferModal()" class="bg-amber-200 text-amber-800 text-xs px-4 py-2 rounded-xl font-semibold hover:bg-amber-300"><i class="fa-solid fa-paper-plane mr-1"></i>轉讓點數</button>
+      </div>
+    </div>
+
+    <!-- QR Code 彈窗 -->
+    <div id="qrModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div class="cute-card p-6 w-full max-w-sm text-center relative">
+        <button onclick="closeQRModal()" class="absolute top-3 right-4 text-gray-400 text-xl">&times;</button>
+        <h3 class="font-bold text-gray-700 mb-2">掃描扣點碼</h3>
+        <select id="qrCourseSelect" onchange="generateQR()" class="cute-input w-full mb-4 text-sm">
+          <option value="0|現場體驗/自訂">選擇課程（由管理員掃描）</option>
+        </select>
+        <div id="qrcode" class="flex justify-center my-3"></div>
+        <p class="text-xs text-gray-400">請向老師出示此條碼進行扣點</p>
+      </div>
+    </div>
+
+    <!-- 課程清單 & 課表 -->
+    <div class="cute-card p-5 mb-5">
+      <h3 class="font-bold text-amber-800 mb-3"><i class="fa-solid fa-calendar-days mr-2 text-pink-400"></i>進行中課程</h3>
+      <div id="courseList" class="space-y-3 text-sm">
+        <p class="text-gray-400 text-center py-2">載入課程中...</p>
+      </div>
+    </div>
+
+    <!-- 紀錄與明細 -->
+    <div class="cute-card p-5 mb-5">
+      <h3 class="font-bold text-amber-800 mb-3"><i class="fa-solid fa-clock-rotate-left mr-2 text-pink-400"></i>點數變更紀錄</h3>
+      <div id="logList" class="space-y-2 text-xs max-h-48 overflow-y-auto">
+        <p class="text-gray-400 text-center py-2">尚無交易紀錄</p>
+      </div>
+    </div>
+
+    <!-- 管理員專區 (如果身份是 admin 才會顯示) -->
+    <div id="adminPanel" class="hidden border-t-2 border-dashed border-pink-200 pt-4 mt-6">
+      <h3 class="font-bold text-red-400 mb-3"><i class="fa-solid fa-user-shield mr-2"></i>管理員操作後台</h3>
+      
+      <div class="grid grid-cols-2 gap-2 mb-4">
+        <button onclick="openScanner()" class="bg-red-400 text-white p-3 rounded-xl text-xs font-bold shadow hover:bg-red-500"><i class="fa-solid fa-camera mb-1 block text-base"></i>掃碼扣點</button>
+        <button onclick="openTopUpModal()" class="bg-emerald-400 text-white p-3 rounded-xl text-xs font-bold shadow hover:bg-emerald-500"><i class="fa-solid fa-plus-circle mb-1 block text-base"></i>電話加值</button>
+      </div>
+
+      <div class="cute-card p-4">
+        <h4 class="font-bold text-gray-700 text-xs mb-2">新增課程</h4>
+        <input id="newCourseName" type="text" placeholder="課程名稱" class="cute-input w-full text-xs mb-2">
+        <div class="flex gap-2 mb-2">
+          <input id="newCoursePoints" type="number" placeholder="所需點數" class="cute-input w-1/2 text-xs">
+          <input id="newCourseSchedule" type="text" placeholder="上課時間 (例: 週二 19:00)" class="cute-input w-1/2 text-xs">
+        </div>
+        <button onclick="submitAddCourse()" class="cute-btn w-full text-xs py-2 font-bold">新增課程</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 相機掃描 Modal -->
+  <div id="scannerModal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+    <div class="bg-white p-4 rounded-2xl w-full max-w-sm">
+      <h3 class="font-bold text-gray-700 text-center mb-2">對準學員 QR Code</h3>
+      <div id="reader" class="w-full"></div>
+      <button onclick="closeScanner()" class="w-full mt-3 py-2 bg-gray-200 text-gray-700 rounded-xl text-xs font-bold">關閉相機</button>
+    </div>
+  </div>
+
+  <script>
+    // ⚠️ 請替換為您的 GAS 部署網址與 LIFF ID
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbwo-A2-UG-Ac9gPmKpTK71uAw3MFOpE_J5hn7_5raxhWVhcXAQLXXXKDJK4bWuS_DgVWQ/exec";
+    const LIFF_ID = "YOUR_LINE_LIFF_ID";
+
+    let currentUser = null;
+    let html5QrcodeScanner = null;
+
+    window.onload = async function() {
+      await liff.init({ liffId: LIFF_ID });
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+      const profile = await liff.getProfile();
+      fetchUserData(profile.userId);
+    };
+
+    async function apiRequest(data) {
+      const resp = await fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify(data)
+      });
+      return await resp.json();
+    }
+
+    async function fetchUserData(lineId) {
+      const res = await apiRequest({ action: "getUser", lineId: lineId });
+      if (res.success) {
+        currentUser = { ...res.user, lineId: lineId };
+        renderUI();
+      } else {
+        currentUser = { lineId: lineId };
+        document.getElementById("registerModal").classList.remove("hidden");
+      }
+    }
+
+    async function submitRegister() {
+      const name = document.getElementById("regName").value.trim();
+      const phone = document.getElementById("regPhone").value.trim();
+      if (!name || !phone) return Swal.fire("請完整填寫姓名與電話");
+
+      const res = await apiRequest({ action: "register", lineId: currentUser.lineId, name: name, phone: phone });
+      if (res.success) {
+        currentUser = { ...res.user, lineId: currentUser.lineId };
+        document.getElementById("registerModal").classList.add("hidden");
+        renderUI();
+      }
+    }
+
+    function renderUI() {
+      document.getElementById("mainApp").classList.remove("hidden");
+      document.getElementById("userWelcome").innerText = `歡迎回來，${currentUser.name} (${currentUser.phone})`;
+      document.getElementById("pointDisplay").innerText = currentUser.points;
+
+      if (currentUser.role === "admin") {
+        document.getElementById("adminPanel").classList.remove("hidden");
+      }
+
+      loadCourses();
+      loadLogs();
+    }
+
+    async function loadCourses() {
+      const res = await apiRequest({ action: "getCourses" });
+      if (res.success) {
+        const listDiv = document.getElementById("courseList");
+        const select = document.getElementById("qrCourseSelect");
+        listDiv.innerHTML = "";
+        select.innerHTML = `<option value="0|現場扣點">現場扣點 / 其它</option>`;
+
+        res.courses.forEach(c => {
+          select.innerHTML += `<option value="${c.points}|${c.name}">${c.name} (${c.points} 點)</option>`;
+          listDiv.innerHTML += `
+            <div class="flex justify-between items-center p-2 bg-orange-50 rounded-xl">
+              <div>
+                <div class="font-bold text-gray-700">${c.name}</div>
+                <div class="text-xs text-gray-400">${c.schedule}</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-pink-500">${c.points} 點</span>
+                ${currentUser.role === 'admin' ? `<button onclick="deleteCourse('${c.id}')" class="text-red-400 text-xs p-1"><i class="fa-solid fa-trash"></i></button>` : ''}
+              </div>
+            </div>`;
+        });
+      }
+    }
+
+    async function loadLogs() {
+      const res = await apiRequest({ action: "getLogs", phone: currentUser.phone });
+      if (res.success) {
+        const logDiv = document.getElementById("logList");
+        logDiv.innerHTML = res.logs.map(l => `
+          <div class="flex justify-between p-2 border-b border-gray-100">
+            <div>
+              <span class="font-semibold text-gray-600">[${l.type}]</span> ${l.detail}
+              <div class="text-gray-300">${l.time}</div>
+            </div>
+            <span class="font-bold ${l.points > 0 ? 'text-emerald-500' : 'text-red-400'}">${l.points > 0 ? '+' : ''}${l.points}</span>
+          </div>
+        `).join('') || '<p class="text-gray-400 text-center py-2">尚無變更紀錄</p>';
+      }
+    }
+
+    // QR Code 扣點邏輯
+    function showQRCode() {
+      document.getElementById("qrModal").classList.remove("hidden");
+      generateQR();
+    }
+
+    function closeQRModal() {
+      document.getElementById("qrModal").classList.add("hidden");
+    }
+
+    function generateQR() {
+      const val = document.getElementById("qrCourseSelect").value.split('|');
+      const payload = JSON.stringify({
+        phone: currentUser.phone,
+        points: val[0],
+        courseName: val[1]
+      });
+      document.getElementById("qrcode").innerHTML = "";
+      new QRCode(document.getElementById("qrcode"), { text: payload, width: 160, height: 160 });
+    }
+
+    // 相機掃描 (管理員)
+    function openScanner() {
+      document.getElementById("scannerModal").classList.remove("hidden");
+      html5QrcodeScanner = new Html5Qrcode("reader");
+      html5QrcodeScanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, async (decodedText) => {
+        html5QrcodeScanner.stop();
+        closeScanner();
+        try {
+          const data = JSON.parse(decodedText);
+          const res = await apiRequest({ action: "deduct", phone: data.phone, points: data.points, courseName: data.courseName });
+          if (res.success) Swal.fire("扣點成功！", `已扣除 ${data.points} 點`, "success");
+          else Swal.fire("扣點失敗", res.message, "error");
+        } catch(e) { Swal.fire("無效的條碼格式"); }
+      });
+    }
+
+    function closeScanner() {
+      if (html5QrcodeScanner) html5QrcodeScanner.stop();
+      document.getElementById("scannerModal").classList.add("hidden");
+    }
+
+    // 管理員加值
+    async function openTopUpModal() {
+      const { value: formValues } = await Swal.fire({
+        title: '學員電話加值',
+        html: '<input id="swal-phone" class="swal2-input" placeholder="學員電話">' +
+              '<input id="swal-points" type="number" class="swal2-input" placeholder="增加點數">',
+        focusConfirm: false,
+        preConfirm: () => [
+          document.getElementById('swal-phone').value,
+          document.getElementById('swal-points').value
+        ]
+      });
+      if (formValues) {
+        const res = await apiRequest({ action: "topUp", phone: formValues[0], points: formValues[1] });
+        if (res.success) Swal.fire("加值成功！", `目前點數: ${res.newPoints}`, "success");
+        else Swal.fire("加值失敗", res.message, "error");
+      }
+    }
+
+    // 點數轉讓
+    async function openTransferModal() {
+      const { value: formValues } = await Swal.fire({
+        title: '轉讓點數',
+        html: '<input id="tr-phone" class="swal2-input" placeholder="接收者電話">' +
+              '<input id="tr-points" type="number" class="swal2-input" placeholder="轉讓點數">',
+        focusConfirm: false,
+        preConfirm: () => [
+          document.getElementById('tr-phone').value,
+          document.getElementById('tr-points').value
+        ]
+      });
+      if (formValues) {
+        const res = await apiRequest({ action: "transfer", fromPhone: currentUser.phone, toPhone: formValues[0], points: formValues[1] });
+        if (res.success) {
+          Swal.fire("轉讓成功！", "", "success");
+          fetchUserData(currentUser.lineId);
+        } else Swal.fire("轉讓失敗", res.message, "error");
+      }
+    }
+
+    // 課程增刪
+    async function submitAddCourse() {
+      const name = document.getElementById("newCourseName").value;
+      const points = document.getElementById("newCoursePoints").value;
+      const schedule = document.getElementById("newCourseSchedule").value;
+      if (!name || !points) return Swal.fire("請輸入完整資料");
+
+      const res = await apiRequest({ action: "addCourse", name: name, points: points, schedule: schedule });
+      if (res.success) {
+        Swal.fire("課程新增成功", "", "success");
+        loadCourses();
+      }
+    }
+
+    async function deleteCourse(id) {
+      if (confirm("確定要刪除此課程嗎？")) {
+        const res = await apiRequest({ action: "deleteCourse", courseId: id });
+        if (res.success) loadCourses();
+      }
+    }
+  </script>
+</body>
+</html>
